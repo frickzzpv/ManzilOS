@@ -1,45 +1,31 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
-import jwt from 'jsonwebtoken'
-import { v4 as uuidv4 } from 'uuid'
-
-const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key'
-
-interface JwtPayload {
-  userId: string
-  phone: string
-  role: string
-  organizationId: string
-}
+import { getUserSession } from '@/lib/auth'
+import { createMaintenanceRequestSchema } from '@/lib/validators'
+import { z } from 'zod'
 
 export async function POST(request: NextRequest) {
   try {
-    const authHeader = request.headers.get('authorization')
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      return NextResponse.json(
-        { error: 'Authorization token required' },
-        { status: 401 }
-      )
+    const session = await getUserSession(request)
+    if (!session) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
-    const token = authHeader.substring(7)
-    const decoded = jwt.verify(token, JWT_SECRET) as JwtPayload
+    const body = await request.json()
+    const validation = createMaintenanceRequestSchema.safeParse(body)
 
-    const { title, description, category, priority, unitId } = await request.json()
-
-    if (!title || !description || !category || !unitId) {
-      return NextResponse.json(
-        { error: 'Title, description, category, and unitId are required' },
-        { status: 400 }
-      )
+    if (!validation.success) {
+      return NextResponse.json({ error: 'Invalid input', issues: validation.error.issues }, { status: 400 })
     }
+
+    const { title, description, category, priority, unitId } = validation.data
 
     // Verify the unit belongs to the user's organization
     const unit = await db.unit.findFirst({
       where: {
         id: unitId,
         property: {
-          organizationId: decoded.organizationId
+          organizationId: session.organizationId
         }
       }
     })
@@ -54,16 +40,15 @@ export async function POST(request: NextRequest) {
     // Create maintenance request
     const maintenanceRequest = await db.maintenanceRequest.create({
       data: {
-        id: uuidv4(),
         title,
         description,
         category,
         priority: priority || 'MEDIUM',
-        organizationId: decoded.organizationId,
+        organizationId: session.organizationId,
         propertyId: unit.propertyId,
         unitId,
-        tenantId: decoded.userId,
-        createdById: decoded.userId,
+        tenantId: session.userId,
+        createdById: session.userId,
         status: 'PENDING'
       },
       include: {
@@ -95,6 +80,9 @@ export async function POST(request: NextRequest) {
 
   } catch (error) {
     console.error('Create maintenance request error:', error)
+    if (error instanceof z.ZodError) {
+      return NextResponse.json({ error: 'Invalid input', issues: error.issues }, { status: 400 })
+    }
     return NextResponse.json(
       { error: 'Internal server error' },
       { status: 500 }
@@ -104,16 +92,10 @@ export async function POST(request: NextRequest) {
 
 export async function GET(request: NextRequest) {
   try {
-    const authHeader = request.headers.get('authorization')
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      return NextResponse.json(
-        { error: 'Authorization token required' },
-        { status: 401 }
-      )
+    const session = await getUserSession(request)
+    if (!session) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
-
-    const token = authHeader.substring(7)
-    const decoded = jwt.verify(token, JWT_SECRET) as JwtPayload
 
     const { searchParams } = new URL(request.url)
     const status = searchParams.get('status')
@@ -121,11 +103,11 @@ export async function GET(request: NextRequest) {
 
     // Build where clause based on user role
     let whereClause: any = {
-      organizationId: decoded.organizationId
+      organizationId: session.organizationId
     }
 
-    if (decoded.role === 'TENANT') {
-      whereClause.tenantId = decoded.userId
+    if (session.role === 'TENANT') {
+      whereClause.tenantId = session.userId
     }
 
     if (status) {

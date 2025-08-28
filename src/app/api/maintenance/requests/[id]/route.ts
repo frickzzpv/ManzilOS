@@ -1,39 +1,33 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
-import jwt from 'jsonwebtoken'
-
-const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key'
-
-interface JwtPayload {
-  userId: string
-  phone: string
-  role: string
-  organizationId: string
-}
+import { getUserSession } from '@/lib/auth'
+import { updateMaintenanceRequestSchema } from '@/lib/validators'
+import { z } from 'zod'
 
 export async function PATCH(
   request: NextRequest,
   { params }: { params: { id: string } }
 ) {
   try {
-    const authHeader = request.headers.get('authorization')
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      return NextResponse.json(
-        { error: 'Authorization token required' },
-        { status: 401 }
-      )
+    const session = await getUserSession(request)
+    if (!session) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
-    const token = authHeader.substring(7)
-    const decoded = jwt.verify(token, JWT_SECRET) as JwtPayload
+    const body = await request.json()
+    const validation = updateMaintenanceRequestSchema.safeParse(body)
 
-    const { status, assignedToId, vendorId, estimatedCost, actualCost, notes, scheduledDate } = await request.json()
+    if (!validation.success) {
+      return NextResponse.json({ error: 'Invalid input', issues: validation.error.issues }, { status: 400 })
+    }
+
+    const { status, assignedToId, vendorId, estimatedCost, actualCost, notes, scheduledDate } = validation.data
 
     // Find the maintenance request
     const maintenanceRequest = await db.maintenanceRequest.findFirst({
       where: {
         id: params.id,
-        organizationId: decoded.organizationId
+        organizationId: session.organizationId
       }
     })
 
@@ -45,9 +39,9 @@ export async function PATCH(
     }
 
     // Check permissions based on role
-    if (decoded.role === 'TENANT') {
+    if (session.role === 'TENANT') {
       // Tenants can only cancel their own requests
-      if (maintenanceRequest.tenantId !== decoded.userId || status !== 'CANCELLED') {
+      if (maintenanceRequest.tenantId !== session.userId || status !== 'CANCELLED') {
         return NextResponse.json(
           { error: 'Access denied' },
           { status: 403 }
@@ -57,16 +51,8 @@ export async function PATCH(
 
     // Update the maintenance request
     const updateData: any = {
-      updatedAt: new Date()
+      ...validation.data
     }
-
-    if (status) updateData.status = status
-    if (assignedToId) updateData.assignedToId = assignedToId
-    if (vendorId) updateData.vendorId = vendorId
-    if (estimatedCost !== undefined) updateData.estimatedCost = estimatedCost
-    if (actualCost !== undefined) updateData.actualCost = actualCost
-    if (notes !== undefined) updateData.notes = notes
-    if (scheduledDate !== undefined) updateData.scheduledDate = scheduledDate
 
     // Set completed date when status is completed
     if (status === 'COMPLETED') {
@@ -117,6 +103,9 @@ export async function PATCH(
 
   } catch (error) {
     console.error('Update maintenance request error:', error)
+    if (error instanceof z.ZodError) {
+      return NextResponse.json({ error: 'Invalid input', issues: error.issues }, { status: 400 })
+    }
     return NextResponse.json(
       { error: 'Internal server error' },
       { status: 500 }

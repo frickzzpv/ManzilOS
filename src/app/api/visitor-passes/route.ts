@@ -1,41 +1,28 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
-import jwt from 'jsonwebtoken'
+import { getUserSession } from '@/lib/auth'
+import { createVisitorPassSchema } from '@/lib/validators'
 import { v4 as uuidv4 } from 'uuid'
 import QRCode from 'qrcode'
-
-const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key'
-
-interface JwtPayload {
-  userId: string
-  phone: string
-  role: string
-  organizationId: string
-}
+import { z } from 'zod'
 
 export async function GET(request: NextRequest) {
   try {
-    const authHeader = request.headers.get('authorization')
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      return NextResponse.json(
-        { error: 'Authorization token required' },
-        { status: 401 }
-      )
+    const session = await getUserSession(request)
+    if (!session) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
-
-    const token = authHeader.substring(7)
-    const decoded = jwt.verify(token, JWT_SECRET) as JwtPayload
 
     const { searchParams } = new URL(request.url)
     const status = searchParams.get('status')
 
     // Build where clause based on user role
     let whereClause: any = {
-      organizationId: decoded.organizationId
+      organizationId: session.organizationId
     }
 
-    if (decoded.role === 'TENANT') {
-      whereClause.tenantId = decoded.userId
+    if (session.role === 'TENANT') {
+      whereClause.tenantId = session.userId
     }
 
     if (status) {
@@ -82,44 +69,38 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
-    const authHeader = request.headers.get('authorization')
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      return NextResponse.json(
-        { error: 'Authorization token required' },
-        { status: 401 }
-      )
+    const session = await getUserSession(request)
+    if (!session) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
-    const token = authHeader.substring(7)
-    const decoded = jwt.verify(token, JWT_SECRET) as JwtPayload
-
     // Check if user is tenant
-    if (decoded.role !== 'TENANT') {
+    if (session.role !== 'TENANT') {
       return NextResponse.json(
         { error: 'Access denied' },
         { status: 403 }
       )
     }
 
-    const { visitorName, visitorPhone, purpose, validFrom, validTo, unitId } = await request.json()
+    const body = await request.json()
+    const validation = createVisitorPassSchema.safeParse(body)
 
-    if (!visitorName || !validFrom || !validTo || !unitId) {
-      return NextResponse.json(
-        { error: 'Visitor name, valid dates, and unit ID are required' },
-        { status: 400 }
-      )
+    if (!validation.success) {
+      return NextResponse.json({ error: 'Invalid input', issues: validation.error.issues }, { status: 400 })
     }
+
+    const { visitorName, visitorPhone, purpose, validFrom, validTo, unitId } = validation.data
 
     // Verify the unit belongs to the user's organization and tenant
     const unit = await db.unit.findFirst({
       where: {
         id: unitId,
         property: {
-          organizationId: decoded.organizationId
+          organizationId: session.organizationId
         },
         leases: {
           some: {
-            tenantId: decoded.userId,
+            tenantId: session.userId,
             status: 'active'
           }
         }
@@ -140,17 +121,16 @@ export async function POST(request: NextRequest) {
 
     const visitorPass = await db.visitorPass.create({
       data: {
-        id: uuidv4(),
         qrCode: qrCodeId,
         visitorName,
         visitorPhone,
         purpose,
         validFrom: new Date(validFrom),
         validTo: new Date(validTo),
-        organizationId: decoded.organizationId,
+        organizationId: session.organizationId,
         propertyId: unit.propertyId,
         unitId,
-        tenantId: decoded.userId
+        tenantId: session.userId
       },
       include: {
         property: {
@@ -184,6 +164,9 @@ export async function POST(request: NextRequest) {
 
   } catch (error) {
     console.error('Create visitor pass error:', error)
+    if (error instanceof z.ZodError) {
+      return NextResponse.json({ error: 'Invalid input', issues: error.issues }, { status: 400 })
+    }
     return NextResponse.json(
       { error: 'Internal server error' },
       { status: 500 }
