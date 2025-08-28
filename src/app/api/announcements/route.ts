@@ -1,36 +1,22 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
-import jwt from 'jsonwebtoken'
-import { v4 as uuidv4 } from 'uuid'
-
-const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key'
-
-interface JwtPayload {
-  userId: string
-  phone: string
-  role: string
-  organizationId: string
-}
+import { getUserSession } from '@/lib/auth'
+import { createAnnouncementSchema } from '@/lib/validators'
+import { z } from 'zod'
 
 export async function GET(request: NextRequest) {
   try {
-    const authHeader = request.headers.get('authorization')
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      return NextResponse.json(
-        { error: 'Authorization token required' },
-        { status: 401 }
-      )
+    const session = await getUserSession(request)
+    if (!session) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
-
-    const token = authHeader.substring(7)
-    const decoded = jwt.verify(token, JWT_SECRET) as JwtPayload
 
     const { searchParams } = new URL(request.url)
     const propertyId = searchParams.get('propertyId')
 
     // Build where clause
     let whereClause: any = {
-      organizationId: decoded.organizationId,
+      organizationId: session.organizationId,
       isActive: true
     }
 
@@ -69,40 +55,34 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
-    const authHeader = request.headers.get('authorization')
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      return NextResponse.json(
-        { error: 'Authorization token required' },
-        { status: 401 }
-      )
+    const session = await getUserSession(request)
+    if (!session) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
-    const token = authHeader.substring(7)
-    const decoded = jwt.verify(token, JWT_SECRET) as JwtPayload
-
     // Check if user is landlord or property manager
-    if (!['LANDLORD', 'PROPERTY_MANAGER'].includes(decoded.role)) {
+    if (!['LANDLORD', 'PROPERTY_MANAGER'].includes(session.role)) {
       return NextResponse.json(
         { error: 'Access denied' },
         { status: 403 }
       )
     }
 
-    const { title, content, type, propertyId } = await request.json()
+    const body = await request.json()
+    const validation = createAnnouncementSchema.safeParse(body)
 
-    if (!title || !content) {
-      return NextResponse.json(
-        { error: 'Title and content are required' },
-        { status: 400 }
-      )
+    if (!validation.success) {
+      return NextResponse.json({ error: 'Invalid input', issues: validation.error.issues }, { status: 400 })
     }
+
+    const { title, content, type, propertyId } = validation.data
 
     // If propertyId is provided, verify it belongs to the organization
     if (propertyId) {
       const property = await db.property.findFirst({
         where: {
           id: propertyId,
-          organizationId: decoded.organizationId
+          organizationId: session.organizationId
         }
       })
 
@@ -116,11 +96,10 @@ export async function POST(request: NextRequest) {
 
     const announcement = await db.announcement.create({
       data: {
-        id: uuidv4(),
         title,
         content,
         type: type || 'general',
-        organizationId: decoded.organizationId,
+        organizationId: session.organizationId,
         propertyId
       },
       include: {
@@ -141,6 +120,9 @@ export async function POST(request: NextRequest) {
 
   } catch (error) {
     console.error('Create announcement error:', error)
+    if (error instanceof z.ZodError) {
+      return NextResponse.json({ error: 'Invalid input', issues: error.issues }, { status: 400 })
+    }
     return NextResponse.json(
       { error: 'Internal server error' },
       { status: 500 }

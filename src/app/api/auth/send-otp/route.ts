@@ -1,17 +1,18 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
-import { v4 as uuidv4 } from 'uuid'
+import { sendOtpSchema } from '@/lib/validators'
+import { z } from 'zod'
 
 export async function POST(request: NextRequest) {
   try {
-    const { phone, role } = await request.json()
+    const body = await request.json()
+    const validation = sendOtpSchema.safeParse(body)
 
-    if (!phone || !role) {
-      return NextResponse.json(
-        { error: 'Phone number and role are required' },
-        { status: 400 }
-      )
+    if (!validation.success) {
+      return NextResponse.json({ error: 'Invalid input', issues: validation.error.issues }, { status: 400 })
     }
+
+    const { phone, role } = validation.data
 
     // Normalize phone number
     const normalizedPhone = phone.replace(/\s+/g, '').replace(/[^\d+]/g, '')
@@ -30,7 +31,6 @@ export async function POST(request: NextRequest) {
       if (!organization) {
         organization = await db.organization.create({
           data: {
-            id: uuidv4(),
             name: 'Default Organization',
             email: 'default@manzilos.com'
           }
@@ -39,7 +39,6 @@ export async function POST(request: NextRequest) {
 
       user = await db.user.create({
         data: {
-          id: uuidv4(),
           phone: normalizedPhone,
           email: `${normalizedPhone}@temp.com`,
           role: role.toUpperCase(),
@@ -73,6 +72,9 @@ export async function POST(request: NextRequest) {
 
   } catch (error) {
     console.error('Send OTP error:', error)
+    if (error instanceof z.ZodError) {
+      return NextResponse.json({ error: 'Invalid input', issues: error.issues }, { status: 400 })
+    }
     return NextResponse.json(
       { error: 'Internal server error' },
       { status: 500 }

@@ -1,19 +1,25 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
+import { verifyOtpSchema } from '@/lib/validators'
 import jwt from 'jsonwebtoken'
+import { z } from 'zod'
 
-const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key'
+const JWT_SECRET = process.env.JWT_SECRET
+
+if (!JWT_SECRET) {
+  throw new Error('JWT_SECRET environment variable is not set')
+}
 
 export async function POST(request: NextRequest) {
   try {
-    const { phone, otp, userId } = await request.json()
+    const body = await request.json()
+    const validation = verifyOtpSchema.safeParse(body)
 
-    if (!phone || !otp || !userId) {
-      return NextResponse.json(
-        { error: 'Phone, OTP, and user ID are required' },
-        { status: 400 }
-      )
+    if (!validation.success) {
+      return NextResponse.json({ error: 'Invalid input', issues: validation.error.issues }, { status: 400 })
     }
+
+    const { phone, otp, userId } = validation.data
 
     // Normalize phone number
     const normalizedPhone = phone.replace(/\s+/g, '').replace(/[^\d+]/g, '')
@@ -33,7 +39,7 @@ export async function POST(request: NextRequest) {
 
     // In production, verify OTP against stored value
     // For demo purposes, we'll accept any 6-digit OTP
-    if (otp.length !== 6 || !/^\d{6}$/.test(otp)) {
+    if (!/^\d{6}$/.test(otp)) {
       return NextResponse.json(
         { error: 'Invalid OTP' },
         { status: 400 }
@@ -76,6 +82,9 @@ export async function POST(request: NextRequest) {
 
   } catch (error) {
     console.error('Verify OTP error:', error)
+    if (error instanceof z.ZodError) {
+      return NextResponse.json({ error: 'Invalid input', issues: error.issues }, { status: 400 })
+    }
     return NextResponse.json(
       { error: 'Internal server error' },
       { status: 500 }

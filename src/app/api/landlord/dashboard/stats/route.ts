@@ -1,31 +1,16 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
-import jwt from 'jsonwebtoken'
-
-const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key'
-
-interface JwtPayload {
-  userId: string
-  phone: string
-  role: string
-  organizationId: string
-}
+import { getUserSession } from '@/lib/auth'
 
 export async function GET(request: NextRequest) {
   try {
-    const authHeader = request.headers.get('authorization')
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      return NextResponse.json(
-        { error: 'Authorization token required' },
-        { status: 401 }
-      )
+    const session = await getUserSession(request)
+    if (!session) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
-    const token = authHeader.substring(7)
-    const decoded = jwt.verify(token, JWT_SECRET) as JwtPayload
-
     // Check if user is landlord or property manager
-    if (!['LANDLORD', 'PROPERTY_MANAGER'].includes(decoded.role)) {
+    if (!['LANDLORD', 'PROPERTY_MANAGER'].includes(session.role)) {
       return NextResponse.json(
         { error: 'Access denied' },
         { status: 403 }
@@ -34,7 +19,7 @@ export async function GET(request: NextRequest) {
 
     // Get organization stats
     const organization = await db.organization.findUnique({
-      where: { id: decoded.organizationId },
+      where: { id: session.organizationId },
       include: {
         properties: {
           include: {
