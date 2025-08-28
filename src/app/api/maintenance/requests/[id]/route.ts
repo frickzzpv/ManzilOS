@@ -49,50 +49,64 @@ export async function PATCH(
       }
     }
 
-    // Update the maintenance request
-    const updateData: any = {
-      ...validation.data
-    }
+    const updatedRequest = await db.$transaction(async (prisma) => {
+      // Update the maintenance request
+      const updateData: any = {
+        ...validation.data
+      }
 
-    // Set completed date when status is completed
-    if (status === 'COMPLETED') {
-      updateData.completedDate = new Date()
-    }
+      // Set completed date when status is completed
+      if (status === 'COMPLETED') {
+        updateData.completedDate = new Date()
+      }
 
-    const updatedRequest = await db.maintenanceRequest.update({
-      where: { id: params.id },
-      data: updateData,
-      include: {
-        unit: {
-          select: {
-            number: true,
-            property: {
-              select: {
-                name: true,
-                address: true
+      const updatedRequest = await prisma.maintenanceRequest.update({
+        where: { id: params.id },
+        data: updateData,
+        include: {
+          unit: {
+            select: {
+              number: true,
+              property: {
+                select: {
+                  name: true,
+                  address: true
+                }
               }
             }
-          }
-        },
-        tenant: {
-          select: {
-            name: true,
-            phone: true
-          }
-        },
-        assignedTo: {
-          select: {
-            name: true,
-            phone: true
-          }
-        },
-        vendor: {
-          select: {
-            name: true,
-            category: true
+          },
+          tenant: {
+            select: {
+              name: true,
+              phone: true
+            }
+          },
+          assignedTo: {
+            select: {
+              name: true,
+              phone: true
+            }
+          },
+          vendor: {
+            select: {
+              name: true,
+              category: true
+            }
           }
         }
+      })
+
+      // Create a status history entry
+      if (status) {
+        await prisma.maintenanceStatusHistory.create({
+          data: {
+            requestId: params.id,
+            status,
+            changedById: session.userId,
+          },
+        })
       }
+      return updatedRequest
     })
 
     return NextResponse.json({

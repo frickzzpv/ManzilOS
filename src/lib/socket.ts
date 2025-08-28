@@ -1,29 +1,36 @@
-import { Server } from 'socket.io';
+import { Server, Socket } from 'socket.io';
+import { verify } from 'jsonwebtoken';
+
+let ioInstance: Server | null = null;
 
 export const setupSocket = (io: Server) => {
-  io.on('connection', (socket) => {
+  ioInstance = io;
+
+  io.on('connection', (socket: Socket) => {
     console.log('Client connected:', socket.id);
 
-    // Handle messages
-    socket.on('message', (msg: { text: string; senderId: string }) => {
-      // Echo: broadcast message only the client who send the message
-      socket.emit('message', {
-        text: `Echo: ${msg.text}`,
-        senderId: 'system',
-        timestamp: new Date().toISOString(),
-      });
+    // Authenticate user and join room
+    socket.on('authenticate', (token: string) => {
+      try {
+        const decoded = verify(token, process.env.NEXTAUTH_SECRET || '') as { userId: string };
+        if (decoded.userId) {
+          socket.join(decoded.userId);
+          console.log(`User ${decoded.userId} authenticated and joined room`);
+        }
+      } catch (error) {
+        console.error('Socket authentication error:', error);
+      }
     });
 
-    // Handle disconnect
     socket.on('disconnect', () => {
       console.log('Client disconnected:', socket.id);
     });
-
-    // Send welcome message
-    socket.emit('message', {
-      text: 'Welcome to WebSocket Echo Server!',
-      senderId: 'system',
-      timestamp: new Date().toISOString(),
-    });
   });
+};
+
+export const getSocketIO = () => {
+  if (!ioInstance) {
+    throw new Error('Socket.IO not initialized!');
+  }
+  return ioInstance;
 };
