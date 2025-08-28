@@ -1,0 +1,351 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// Multi-tenant: Each landlord/property manager has their own organization
+model Organization {
+  id          String   @id @default(cuid())
+  name        String
+  email       String   @unique
+  phone       String?
+  address     String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // Relations
+  users       User[]
+  properties  Property[]
+  leases      Lease[]
+  payments    Payment[]
+  maintenance MaintenanceRequest[]
+  announcements Announcement[]
+  vendors     Vendor[]
+  visitorPasses VisitorPass[]
+
+  @@map("organizations")
+}
+
+// User roles: TENANT, LANDLORD, PROPERTY_MANAGER, VENDOR
+enum UserRole {
+  TENANT
+  LANDLORD
+  PROPERTY_MANAGER
+  VENDOR
+}
+
+enum UserStatus {
+  ACTIVE
+  INACTIVE
+  PENDING
+}
+
+model User {
+  id            String      @id @default(cuid())
+  email         String      @unique
+  phone         String      @unique
+  name          String?
+  role          UserRole    @default(TENANT)
+  status        UserStatus  @default(PENDING)
+  avatar        String?
+  language      String      @default("en") // en, ar
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+
+  // Multi-tenant
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  // Relations
+  tenantLeases  Lease[]
+  assignedMaintenance MaintenanceRequest[] @relation("MaintenanceAssignee")
+  createdMaintenance MaintenanceRequest[] @relation("MaintenanceCreator")
+  maintenanceRequests MaintenanceRequest[] @relation("MaintenanceTenant")
+  payments      Payment[]
+  notifications Notification[]
+  visitorPasses VisitorPass[]
+
+  @@map("users")
+}
+
+model Property {
+  id            String   @id @default(cuid())
+  name          String
+  address       String
+  city          String
+  country       String   @default("AE") // UAE default
+  postalCode    String?
+  type          String   // apartment, villa, commercial, etc.
+  totalUnits    Int
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  // Multi-tenant
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  // Relations
+  units         Unit[]
+  leases        Lease[]
+  maintenance   MaintenanceRequest[]
+  announcements Announcement[]
+  visitorPasses VisitorPass[]
+
+  @@map("properties")
+}
+
+model Unit {
+  id            String   @id @default(cuid())
+  number        String
+  type          String   // studio, 1br, 2br, etc.
+  area          Int?     // in square meters
+  rentAmount    Float    // monthly rent
+  depositAmount Float?
+  status        String   @default("available") // available, occupied, maintenance
+  amenities     String?  // JSON string of amenities
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  // Relations
+  propertyId    String
+  property      Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  leases        Lease[]
+  maintenance   MaintenanceRequest[]
+  visitorPasses VisitorPass[]
+
+  @@map("units")
+}
+
+model Lease {
+  id            String   @id @default(cuid())
+  startDate     DateTime
+  endDate       DateTime
+  monthlyRent   Float
+  deposit       Float?
+  status        String   @default("active") // active, expired, terminated
+  terms         String?  // lease terms as JSON
+  documentUrl   String?  // lease agreement PDF
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  // Relations
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  propertyId    String
+  property      Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  unitId        String
+  unit          Unit     @relation(fields: [unitId], references: [id], onDelete: Cascade)
+  tenantId      String
+  tenant        User     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  payments      Payment[]
+
+  @@map("leases")
+}
+
+enum PaymentStatus {
+  PENDING
+  COMPLETED
+  FAILED
+  REFUNDED
+}
+
+enum PaymentMethod {
+  CARD
+  BANK_TRANSFER
+  CHEQUE
+  APPLE_PAY
+}
+
+model Payment {
+  id            String        @id @default(cuid())
+  amount        Float
+  status        PaymentStatus @default(PENDING)
+  method        PaymentMethod
+  transactionId String?       // external payment gateway ID
+  dueDate       DateTime
+  paidDate      DateTime?
+  description   String?
+  receiptUrl    String?
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+
+  // Relations
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  leaseId       String
+  lease         Lease         @relation(fields: [leaseId], references: [id], onDelete: Cascade)
+  tenantId      String
+  tenant        User          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@map("payments")
+}
+
+enum MaintenanceStatus {
+  PENDING
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+}
+
+enum MaintenancePriority {
+  LOW
+  MEDIUM
+  HIGH
+  URGENT
+}
+
+model MaintenanceRequest {
+  id            String             @id @default(cuid())
+  title         String
+  description   String
+  category      String             // plumbing, electrical, hvac, etc.
+  status        MaintenanceStatus  @default(PENDING)
+  priority      MaintenancePriority @default(MEDIUM)
+  images        String?            // JSON array of image URLs
+  videos        String?            // JSON array of video URLs
+  scheduledDate DateTime?
+  completedDate DateTime?
+  estimatedCost Float?
+  actualCost    Float?
+  notes         String?
+  createdAt     DateTime           @default(now())
+  updatedAt     DateTime           @updatedAt
+
+  // Relations
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  propertyId    String
+  property      Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  unitId        String
+  unit          Unit     @relation(fields: [unitId], references: [id], onDelete: Cascade)
+  tenantId      String
+  tenant        User     @relation("MaintenanceTenant", fields: [tenantId], references: [id], onDelete: Cascade)
+  assignedToId  String?
+  assignedTo    User?    @relation("MaintenanceAssignee", fields: [assignedToId], references: [id])
+  createdById   String
+  createdBy     User     @relation("MaintenanceCreator", fields: [createdById], references: [id])
+  vendorId      String?
+  vendor        Vendor?  @relation(fields: [vendorId], references: [id])
+
+  @@map("maintenance_requests")
+}
+
+model Announcement {
+  id            String   @id @default(cuid())
+  title         String
+  content       String
+  type          String   @default("general") // general, urgent, maintenance
+  isActive      Boolean  @default(true)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  // Relations
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  propertyId    String?
+  property      Property?    @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+
+  @@map("announcements")
+}
+
+model VisitorPass {
+  id            String   @id @default(cuid())
+  qrCode        String   @unique
+  visitorName   String
+  visitorPhone  String?
+  purpose       String?
+  validFrom     DateTime
+  validTo       DateTime
+  status        String   @default("active") // active, used, expired
+  createdAt     DateTime @default(now())
+
+  // Relations
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  propertyId    String
+  property      Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  unitId        String
+  unit          Unit     @relation(fields: [unitId], references: [id], onDelete: Cascade)
+  tenantId      String
+  tenant        User     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@map("visitor_passes")
+}
+
+enum VendorStatus {
+  ACTIVE
+  INACTIVE
+  PENDING
+}
+
+enum VendorCategory {
+  PLUMBING
+  ELECTRICAL
+  HVAC
+  CARPENTRY
+  PAINTING
+  CLEANING
+  SECURITY
+  GENERAL
+}
+
+model Vendor {
+  id            String         @id @default(cuid())
+  name          String
+  email         String         @unique
+  phone         String
+  address       String?
+  category      VendorCategory
+  status        VendorStatus   @default(PENDING)
+  rating        Float?         @default(0)
+  specialties   String?        // JSON array of specialties
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+
+  // Relations
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  assignedJobs  MaintenanceRequest[]
+
+  @@map("vendors")
+}
+
+enum NotificationType {
+  PAYMENT_REMINDER
+  MAINTENANCE_UPDATE
+  ANNOUNCEMENT
+  VISITOR_PASS
+  LEASE_RENEWAL
+  SYSTEM
+}
+
+enum NotificationChannel {
+  PUSH
+  EMAIL
+  WHATSAPP
+  SMS
+}
+
+model Notification {
+  id            String             @id @default(cuid())
+  type          NotificationType
+  title         String
+  message       String
+  channel       NotificationChannel
+  status        String             @default("pending") // pending, sent, failed
+  readAt        DateTime?
+  createdAt     DateTime           @default(now())
+
+  // Relations
+  userId        String
+  user          User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("notifications")
+}
