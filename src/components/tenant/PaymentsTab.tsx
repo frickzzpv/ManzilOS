@@ -1,9 +1,19 @@
 "use client"
 
+import { useState } from 'react'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { DollarSign } from "lucide-react"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog"
+import { PaymentModal } from './PaymentModal'
 
 interface Payment {
   id: string
@@ -15,7 +25,6 @@ interface Payment {
 
 interface PaymentsTabProps {
   payments: Payment[]
-  onPayRent: (paymentId: string) => void
 }
 
 const getStatusColor = (status: string) => {
@@ -34,7 +43,9 @@ const formatCurrency = (amount: number) => {
   }).format(amount)
 }
 
-export function PaymentsTab({ payments, onPayRent }: PaymentsTabProps) {
+export function PaymentsTab({ payments }: PaymentsTabProps) {
+    const [selectedPaymentId, setSelectedPaymentId] = useState<string | null>(null)
+
   return (
     <Card>
       <CardHeader>
@@ -59,12 +70,22 @@ export function PaymentsTab({ payments, onPayRent }: PaymentsTabProps) {
                   {payment.status}
                 </Badge>
                 {payment.status === 'PENDING' && (
-                  <Button
-                    onClick={() => onPayRent(payment.id)}
-                    size="sm"
-                  >
-                    Pay Now
-                  </Button>
+                    <Dialog open={selectedPaymentId === payment.id} onOpenChange={(isOpen) => !isOpen && setSelectedPaymentId(null)}>
+                        <DialogTrigger asChild>
+                            <Button onClick={() => setSelectedPaymentId(payment.id)} size="sm">
+                                Pay Now
+                            </Button>
+                        </DialogTrigger>
+                        <DialogContent>
+                            <DialogHeader>
+                                <DialogTitle>Pay Rent</DialogTitle>
+                                <DialogDescription>
+                                    Enter your card details to pay {formatCurrency(payment.amount)}.
+                                </DialogDescription>
+                            </DialogHeader>
+                            <PaymentModal paymentId={payment.id} onSuccess={() => setSelectedPaymentId(null)} />
+                        </DialogContent>
+                    </Dialog>
                 )}
               </div>
             </div>

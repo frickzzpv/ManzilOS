@@ -17,6 +17,7 @@ model Organization {
   email       String   @unique
   phone       String?
   address     String?
+  stripeAccountId String?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
@@ -29,6 +30,8 @@ model Organization {
   announcements Announcement[]
   vendors     Vendor[]
   visitorPasses VisitorPass[]
+  invoices    Invoice[]
+  expenses    Expense[]
 
   @@map("organizations")
 }
@@ -86,6 +89,44 @@ model User {
   @@map("users")
 }
 
+enum InvoiceStatus {
+  DRAFT
+  SENT
+  PAID
+  VOID
+}
+
+model Invoice {
+  id             String        @id @default(cuid())
+  organizationId String
+  organization   Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  leaseId        String
+  lease          Lease         @relation(fields: [leaseId], references: [id], onDelete: Cascade)
+  amount         Float
+  dueDate        DateTime
+  status         InvoiceStatus @default(DRAFT)
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  @@map("invoices")
+}
+
+model Expense {
+  id             String       @id @default(cuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  propertyId     String
+  property       Property     @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  category       String
+  amount         Float
+  description    String?
+  date           DateTime
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  @@map("expenses")
+}
+
 model Conversation {
   id        String   @id @default(cuid())
   createdAt DateTime @default(now())
@@ -141,6 +182,7 @@ model Property {
   maintenance   MaintenanceRequest[]
   announcements Announcement[]
   visitorPasses VisitorPass[]
+  expenses      Expense[]
 
   @@map("properties")
 }
@@ -205,6 +247,7 @@ model Lease {
   tenantId      String
   tenant        User     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   payments      Payment[]
+  invoices      Invoice[]
 
   @@map("leases")
 }
@@ -229,6 +272,7 @@ model Payment {
   status        PaymentStatus @default(PENDING)
   method        PaymentMethod
   transactionId String?       // external payment gateway ID
+  stripePaymentIntentId String? @unique
   dueDate       DateTime
   paidDate      DateTime?
   description   String?
