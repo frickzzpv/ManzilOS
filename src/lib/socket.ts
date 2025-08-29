@@ -1,29 +1,46 @@
-import { Server } from 'socket.io';
+import { Server, Socket } from 'socket.io';
+import { verify } from 'jsonwebtoken';
+
+let ioInstance: Server | null = null;
 
 export const setupSocket = (io: Server) => {
-  io.on('connection', (socket) => {
+  ioInstance = io;
+
+  io.on('connection', (socket: Socket) => {
     console.log('Client connected:', socket.id);
 
-    // Handle messages
-    socket.on('message', (msg: { text: string; senderId: string }) => {
-      // Echo: broadcast message only the client who send the message
-      socket.emit('message', {
-        text: `Echo: ${msg.text}`,
-        senderId: 'system',
-        timestamp: new Date().toISOString(),
-      });
+    socket.on('authenticate', (token: string) => {
+      try {
+        const decoded = verify(token, process.env.JWT_SECRET || '') as { userId: string };
+        if (decoded.userId) {
+          // Join a room for general notifications for this user
+          socket.join(decoded.userId);
+          console.log(`User ${decoded.userId} authenticated and joined user room`);
+        }
+      } catch (error) {
+        console.error('Socket authentication error:', error);
+      }
     });
 
-    // Handle disconnect
+    socket.on('join_conversation', (conversationId: string) => {
+        socket.join(conversationId);
+        console.log(`Socket ${socket.id} joined conversation ${conversationId}`);
+    });
+
+    socket.on('leave_conversation', (conversationId: string) => {
+        socket.leave(conversationId);
+        console.log(`Socket ${socket.id} left conversation ${conversationId}`);
+    });
+
     socket.on('disconnect', () => {
       console.log('Client disconnected:', socket.id);
     });
-
-    // Send welcome message
-    socket.emit('message', {
-      text: 'Welcome to WebSocket Echo Server!',
-      senderId: 'system',
-      timestamp: new Date().toISOString(),
-    });
   });
+};
+
+export const getSocketIO = () => {
+  if (!ioInstance) {
+    throw new Error('Socket.IO not initialized!');
+  }
+  return ioInstance;
 };
