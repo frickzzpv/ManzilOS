@@ -71,6 +71,11 @@ export async function GET(request: NextRequest) {
         new Date(payment.dueDate) < new Date()
       ).length
     const occupancyRate = totalUnits > 0 ? (occupiedUnits / totalUnits) * 100 : 0
+    const openMaintenanceRequests = organization.properties.reduce((sum, prop) =>
+        sum + prop.units.reduce((unitSum, unit) =>
+            unitSum + unit.maintenance.filter(m => m.status === 'PENDING' || m.status === 'IN_PROGRESS').length,
+        0),
+    0)
 
     return NextResponse.json({
       totalProperties,
@@ -80,7 +85,8 @@ export async function GET(request: NextRequest) {
       monthlyRevenue,
       pendingPayments,
       overduePayments,
-      occupancyRate
+      occupancyRate,
+      openMaintenanceRequests
     })
 
   } catch (error) {
