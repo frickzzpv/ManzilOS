@@ -20,12 +20,17 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url)
     const status = searchParams.get('status')
 
+    const vendor = await db.vendor.findFirst({
+        where: { email: session.email }
+    })
+
+    if (!vendor) {
+        return NextResponse.json({ error: 'Vendor profile not found' }, { status: 404 })
+    }
+
     // Get vendor's jobs
     let whereClause: any = {
-      organizationId: session.organizationId,
-      vendorId: {
-        not: null // Jobs assigned to any vendor
-      }
+      vendorId: vendor.id,
     }
 
     if (status) {

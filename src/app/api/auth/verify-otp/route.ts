@@ -3,7 +3,6 @@ import { db } from '@/lib/db'
 import { verifyOtpSchema } from '@/lib/validators'
 import jwt from 'jsonwebtoken'
 import { z } from 'zod'
-import { cookies } from 'next/headers'
 
 const JWT_SECRET = process.env.JWT_SECRET
 
@@ -65,17 +64,10 @@ export async function POST(request: NextRequest) {
       { expiresIn: '7d' }
     )
 
-    cookies().set('manzilos_token', token, {
-        httpOnly: true,
-        secure: process.env.NODE_ENV === 'production',
-        sameSite: 'strict',
-        path: '/',
-        maxAge: 60 * 60 * 24 * 7 // 1 week
-    })
-
     return NextResponse.json({
       success: true,
       message: 'OTP verified successfully',
+      token,
       user: {
         id: user.id,
         phone: user.phone,

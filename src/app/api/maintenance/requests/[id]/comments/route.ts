@@ -83,10 +83,6 @@ export async function POST(
       },
     })
 
-    // Notify relevant parties
-    // (Implementation omitted for brevity, but would be similar to the
-    // maintenance request creation notification)
-
     return NextResponse.json(comment)
   } catch (error) {
     console.error('Create comment error:', error)

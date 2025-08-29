@@ -2,7 +2,6 @@ import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { getUserSession } from '@/lib/auth'
 import { createMaintenanceRequestSchema } from '@/lib/validators'
-import { createNotification } from '@/lib/notification-service'
 import { z } from 'zod'
 
 export async function POST(request: NextRequest) {
@@ -19,7 +18,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Invalid input', issues: validation.error.issues }, { status: 400 })
     }
 
-    const { title, description, category, priority, unitId, images } = validation.data
+    const { title, description, category, priority, unitId } = validation.data
 
     // Verify the unit belongs to the user's organization
     const unit = await db.unit.findFirst({
@@ -38,24 +37,6 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // RBAC: If user is a tenant, ensure they are associated with the unit
-    if (session.role === 'TENANT') {
-        const lease = await db.lease.findFirst({
-            where: {
-                tenantId: session.userId,
-                unitId: unitId,
-                status: 'active'
-            }
-        })
-
-        if (!lease) {
-            return NextResponse.json(
-                { error: 'You are not authorized to create a request for this unit' },
-                { status: 403 }
-            )
-        }
-    }
-
     // Create maintenance request
     const maintenanceRequest = await db.maintenanceRequest.create({
       data: {
@@ -68,8 +49,7 @@ export async function POST(request: NextRequest) {
         unitId,
         tenantId: session.userId,
         createdById: session.userId,
-        status: 'PENDING',
-        images: images ? JSON.stringify(images) : undefined,
+        status: 'PENDING'
       },
       include: {
         unit: {
@@ -91,25 +71,6 @@ export async function POST(request: NextRequest) {
         }
       }
     })
-
-    // Notify property managers
-    const propertyManagers = await db.user.findMany({
-      where: {
-        organizationId: session.organizationId,
-        role: 'PROPERTY_MANAGER'
-      }
-    })
-
-    for (const manager of propertyManagers) {
-      await createNotification({
-        userId: manager.id,
-        type: 'MAINTENANCE_UPDATE',
-        title: 'New Maintenance Request',
-        message: `A new maintenance request has been submitted for Unit ${unit.number}.`,
-        channel: 'PUSH'
-      })
-    }
-
 
     return NextResponse.json({
       success: true,

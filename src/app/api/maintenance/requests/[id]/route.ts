@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { getUserSession } from '@/lib/auth'
 import { updateMaintenanceRequestSchema } from '@/lib/validators'
+import { createNotification } from '@/lib/notification-service'
 import { z } from 'zod'
 
 export async function PATCH(
@@ -42,71 +43,64 @@ export async function PATCH(
     if (session.role === 'TENANT') {
       // Tenants can only cancel their own requests
       if (maintenanceRequest.tenantId !== session.userId || status !== 'CANCELLED') {
-        return NextResponse.json(
-          { error: 'Access denied' },
-          { status: 403 }
-        )
+        return NextResponse.json({ error: 'Access denied' }, { status: 403 })
       }
+    } else if (session.role === 'VENDOR') {
+        const vendor = await db.vendor.findFirst({ where: { email: session.email }})
+        // Vendors can only update jobs assigned to them
+        if (maintenanceRequest.vendorId !== vendor?.id) {
+            return NextResponse.json({ error: 'Access denied' }, { status: 403 })
+        }
+        // Vendors can only accept or complete jobs
+        if (status && !['IN_PROGRESS', 'COMPLETED'].includes(status)) {
+            return NextResponse.json({ error: 'Invalid status update' }, { status: 400 })
+        }
     }
 
-    const updatedRequest = await db.$transaction(async (prisma) => {
-      // Update the maintenance request
-      const updateData: any = {
-        ...validation.data
-      }
+    // Update the maintenance request
+    const updateData: any = {
+      ...validation.data
+    }
 
-      // Set completed date when status is completed
-      if (status === 'COMPLETED') {
-        updateData.completedDate = new Date()
-      }
+    // Set completed date when status is completed
+    if (status === 'COMPLETED') {
+      updateData.completedDate = new Date()
+    }
 
-      const updatedRequest = await prisma.maintenanceRequest.update({
-        where: { id: params.id },
-        data: updateData,
-        include: {
-          unit: {
-            select: {
-              number: true,
-              property: {
-                select: {
-                  name: true,
-                  address: true
-                }
+    const updatedRequest = await db.maintenanceRequest.update({
+      where: { id: params.id },
+      data: updateData,
+      include: {
+        unit: {
+          select: {
+            number: true,
+            property: {
+              select: {
+                name: true,
+                address: true
               }
             }
-          },
-          tenant: {
-            select: {
-              name: true,
-              phone: true
-            }
-          },
-          assignedTo: {
-            select: {
-              name: true,
-              phone: true
-            }
-          },
-          vendor: {
-            select: {
-              name: true,
-              category: true
-            }
+          }
+        },
+        tenant: {
+          select: {
+            name: true,
+            phone: true
+          }
+        },
+        assignedTo: {
+          select: {
+            name: true,
+            phone: true
+          }
+        },
+        vendor: {
+          select: {
+            name: true,
+            category: true
           }
         }
-      })
-
-      // Create a status history entry
-      if (status) {
-        await prisma.maintenanceStatusHistory.create({
-          data: {
-            requestId: params.id,
-            status,
-            changedById: session.userId,
-          },
-        })
       }
-      return updatedRequest
     })
 
     return NextResponse.json({

@@ -2,10 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { getUserSession } from '@/lib/auth'
 
-export async function GET(
-  request: NextRequest,
-  { params }: { params: { id: string } }
-) {
+export async function GET(request: NextRequest) {
   try {
     const session = await getUserSession(request)
     if (!session) {
@@ -16,33 +13,18 @@ export async function GET(
       return NextResponse.json({ error: 'Access denied' }, { status: 403 })
     }
 
-    const tenant = await db.user.findFirst({
+    const vendors = await db.vendor.findMany({
       where: {
-        id: params.id,
         organizationId: session.organizationId,
-        role: 'TENANT',
       },
-      include: {
-        tenantLeases: {
-          where: { status: 'active' },
-          include: {
-            unit: {
-              include: {
-                property: true,
-              },
-            },
-          },
-        },
+      orderBy: {
+        name: 'asc',
       },
     })
 
-    if (!tenant) {
-      return NextResponse.json({ error: 'Tenant not found' }, { status: 404 })
-    }
-
-    return NextResponse.json(tenant)
+    return NextResponse.json(vendors)
   } catch (error) {
-    console.error('Get tenant error:', error)
+    console.error('Get vendors error:', error)
     return NextResponse.json(
       { error: 'Internal server error' },
       { status: 500 }

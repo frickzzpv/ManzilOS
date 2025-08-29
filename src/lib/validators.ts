@@ -6,7 +6,6 @@ export const createMaintenanceRequestSchema = z.object({
   category: z.string().min(1, 'Category is required'),
   priority: z.enum(['LOW', 'MEDIUM', 'HIGH', 'URGENT']).optional(),
   unitId: z.string().min(1, 'Unit ID is required'),
-  images: z.array(z.string().url()).optional(),
 });
 
 export const createAnnouncementSchema = z.object({

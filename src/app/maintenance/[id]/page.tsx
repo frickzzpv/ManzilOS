@@ -8,9 +8,11 @@ import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
-import { Send } from 'lucide-react'
+import { Send, User } from 'lucide-react'
 import { useState } from 'react'
 import { toast } from 'sonner'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { useAuth } from '@/hooks/use-auth'
 
 const api = axios.create({
   baseURL: '/api',
@@ -19,25 +21,11 @@ const api = axios.create({
   },
 })
 
-const getAuthToken = () => {
-    if (typeof window === 'undefined') {
-        return null
-    }
-    return localStorage.getItem('manzilos_token')
-}
-
-api.interceptors.request.use(config => {
-    const token = getAuthToken()
-    if (token) {
-        config.headers.Authorization = `Bearer ${token}`
-    }
-    return config
-})
-
 const useMaintenanceRequest = (id: string) => {
   return useQuery({
     queryKey: ['maintenanceRequest', id],
     queryFn: async () => {
+      // This endpoint needs to be created or verified
       const { data } = await api.get(`/maintenance/requests/${id}`)
       return data
     },
@@ -56,6 +44,16 @@ const useMaintenanceComments = (id: string) => {
     })
 }
 
+const useVendors = () => {
+    return useQuery({
+        queryKey: ['vendors'],
+        queryFn: async () => {
+            const { data } = await api.get('/vendor')
+            return data
+        },
+    })
+}
+
 const useMaintenanceStatusHistory = (id: string) => {
     return useQuery({
         queryKey: ['maintenanceStatusHistory', id],
@@ -71,11 +69,14 @@ export default function MaintenanceRequestDetailsPage() {
   const params = useParams()
   const id = params.id as string
   const queryClient = useQueryClient()
+  const { data: auth } = useAuth()
   const [newComment, setNewComment] = useState('')
+  const [selectedVendor, setSelectedVendor] = useState('')
 
   const { data: request, isLoading: isRequestLoading } = useMaintenanceRequest(id)
   const { data: comments, isLoading: areCommentsLoading } = useMaintenanceComments(id)
   const { data: history, isLoading: isHistoryLoading } = useMaintenanceStatusHistory(id)
+  const { data: vendors, isLoading: areVendorsLoading } = useVendors()
 
   const addComment = useMutation({
     mutationFn: (content: string) => api.post(`/maintenance/requests/${id}/comments`, { content }),
@@ -89,13 +90,30 @@ export default function MaintenanceRequestDetailsPage() {
     }
   })
 
+  const assignVendor = useMutation({
+    mutationFn: (vendorId: string) => api.patch(`/maintenance/requests/${id}`, { vendorId }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['maintenanceRequest', id] })
+      toast.success('Vendor assigned successfully')
+    },
+    onError: () => {
+        toast.error('Failed to assign vendor')
+    }
+  })
+
   const handleAddComment = () => {
     if (newComment.trim()) {
       addComment.mutate(newComment)
     }
   }
 
-  if (isRequestLoading || areCommentsLoading || isHistoryLoading) {
+  const handleAssignVendor = () => {
+    if (selectedVendor) {
+      assignVendor.mutate(selectedVendor)
+    }
+  }
+
+  if (isRequestLoading || areCommentsLoading || isHistoryLoading || areVendorsLoading) {
     return (
       <div className="flex items-center justify-center min-h-screen">
         <div className="animate-spin rounded-full h-32 w-32 border-b-2 border-purple-600"></div>
@@ -117,20 +135,56 @@ export default function MaintenanceRequestDetailsPage() {
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <p className="mb-4">{request.description}</p>
+          <div className="grid grid-cols-3 gap-8">
+            <div className="col-span-2">
+                <p className="mb-4">{request.description}</p>
 
-          {request.images && JSON.parse(request.images).length > 0 && (
-            <div className="mb-4">
-              <h4 className="font-semibold mb-2">Images</h4>
-              <div className="flex space-x-2">
-                {JSON.parse(request.images).map((img: string) => (
-                  <img key={img} src={img} alt="Maintenance request attachment" className="h-32 w-32 object-cover rounded-lg" />
-                ))}
-              </div>
+                {request.images && JSON.parse(request.images).length > 0 && (
+                    <div className="mb-4">
+                    <h4 className="font-semibold mb-2">Images</h4>
+                    <div className="flex space-x-2">
+                        {JSON.parse(request.images).map((img: string) => (
+                        <img key={img} src={img} alt="Maintenance request attachment" className="h-32 w-32 object-cover rounded-lg" />
+                        ))}
+                    </div>
+                    </div>
+                )}
             </div>
-          )}
+            <div>
+                <h4 className="font-semibold mb-2">Details</h4>
+                <p><strong>Property:</strong> {request.unit.property.name}</p>
+                <p><strong>Unit:</strong> {request.unit.number}</p>
+                <p><strong>Tenant:</strong> {request.tenant.name}</p>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                {auth?.role !== 'TENANT' && (
+                    <div className="mt-4">
+                        <h4 className="font-semibold mb-2">Assign Vendor</h4>
+                        {request.vendor ? (
+                            <p>Assigned to: {request.vendor.name}</p>
+                        ) : (
+                        <div className="flex items-center space-x-2">
+                            <Select onValueChange={setSelectedVendor}>
+                                <SelectTrigger>
+                                    <SelectValue placeholder="Select a vendor" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    {vendors?.map((v: any) => (
+                                        <SelectItem key={v.id} value={v.id}>{v.name}</SelectItem>
+                                    ))}
+                                </SelectContent>
+                            </Select>
+                            <Button onClick={handleAssignVendor} disabled={!selectedVendor || assignVendor.isPending}>
+                                <User className="mr-2 h-4 w-4" /> Assign
+                            </Button>
+                        </div>
+                        )}
+                    </div>
+                )}
+            </div>
+          </div>
+
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-8 mt-8">
             <div>
                 <h4 className="font-semibold mb-4">Comments</h4>
                 <div className="space-y-4 mb-4">
