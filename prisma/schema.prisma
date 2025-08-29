@@ -47,6 +47,13 @@ enum UserStatus {
   PENDING
 }
 
+enum ScreeningStatus {
+    NOT_STARTED
+    IN_PROGRESS
+    COMPLETED
+    FAILED
+}
+
 model User {
   id            String      @id @default(cuid())
   email         String      @unique
@@ -54,6 +61,7 @@ model User {
   name          String?
   role          UserRole    @default(TENANT)
   status        UserStatus  @default(PENDING)
+  screeningStatus ScreeningStatus?
   avatar        String?
   language      String      @default("en") // en, ar
   createdAt     DateTime    @default(now())
@@ -159,6 +167,20 @@ model Unit {
   @@map("units")
 }
 
+enum SignatureStatus {
+  PENDING
+  SENT
+  SIGNED
+  DECLINED
+}
+
+enum RenewalOfferStatus {
+  NOT_SENT
+  SENT
+  ACCEPTED
+  DECLINED
+}
+
 model Lease {
   id            String   @id @default(cuid())
   startDate     DateTime
@@ -168,6 +190,8 @@ model Lease {
   status        String   @default("active") // active, expired, terminated
   terms         String?  // lease terms as JSON
   documentUrl   String?  // lease agreement PDF
+  signatureStatus SignatureStatus @default(PENDING)
+  renewalOfferStatus RenewalOfferStatus @default(NOT_SENT)
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
