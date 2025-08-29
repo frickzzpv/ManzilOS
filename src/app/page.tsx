@@ -40,8 +40,6 @@ export default function Home() {
         setShowOtp(true)
         setUserId(data.userId)
         toast.success(`OTP sent to ${phone}`)
-        // For demo purposes, show the OTP in console
-        console.log('Demo OTP:', data.otp)
       } else {
         toast.error(data.error || 'Failed to send OTP')
       }
@@ -72,8 +70,7 @@ export default function Home() {
       const data = await response.json()
 
       if (data.success) {
-        // Store token in localStorage
-        localStorage.setItem('manzilos_token', data.token)
+        // The token is now in an httpOnly cookie
         localStorage.setItem('manzilos_user', JSON.stringify(data.user))
 
         toast.success('Login successful!')

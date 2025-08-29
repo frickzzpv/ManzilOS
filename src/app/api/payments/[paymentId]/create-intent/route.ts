@@ -2,18 +2,22 @@ import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { getUserSession } from '@/lib/auth'
 import { stripe } from '@/lib/stripe-service'
+import logger from '@/lib/logger'
 
 export async function POST(
   request: NextRequest,
   { params }: { params: { paymentId: string } }
 ) {
-  try {
-    const session = await getUserSession(request)
-    if (!session) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    }
+  const session = await getUserSession(request)
+  if (!session) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
 
-    const paymentId = params.paymentId
+  const paymentId = params.paymentId
+  const log = logger.child({ paymentId, userId: session.userId, api: '/api/payments/create-intent' })
+
+  try {
+    log.info('Attempting to create payment intent')
 
     const payment = await db.payment.findFirst({
       where: {
@@ -26,10 +30,12 @@ export async function POST(
     });
 
     if (!payment) {
-      return NextResponse.json({ error: 'Payment not found' }, { status: 404 })
+        log.warn('Payment not found')
+        return NextResponse.json({ error: 'Payment not found' }, { status: 404 })
     }
 
     if (payment.status === 'COMPLETED') {
+        log.warn('Payment already completed')
         return NextResponse.json({ error: 'Payment has already been completed.'}, { status: 400 })
     }
 
@@ -49,10 +55,11 @@ export async function POST(
         data: { stripePaymentIntentId: paymentIntent.id },
     });
 
+    log.info('Payment intent created successfully')
     return NextResponse.json({ clientSecret: paymentIntent.client_secret })
 
   } catch (error) {
-    console.error('Create Payment Intent Error:', error)
+    log.error(error, 'Failed to create payment intent')
     return NextResponse.json(
       { error: 'Internal server error' },
       { status: 500 }

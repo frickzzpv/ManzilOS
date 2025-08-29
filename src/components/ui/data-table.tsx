@@ -21,11 +21,13 @@ import { Button } from "@/components/ui/button"
 interface DataTableProps<TData, TValue> {
   columns: ColumnDef<TData, TValue>[]
   data: TData[]
+  emptyStateMessage?: React.ReactNode
 }
 
 export function DataTable<TData, TValue>({
   columns,
   data,
+  emptyStateMessage = "No results."
 }: DataTableProps<TData, TValue>) {
   const table = useReactTable({
     data,
@@ -73,7 +75,7 @@ export function DataTable<TData, TValue>({
             ) : (
                 <TableRow>
                 <TableCell colSpan={columns.length} className="h-24 text-center">
-                    No results.
+                    {emptyStateMessage}
                 </TableCell>
                 </TableRow>
             )}
